@@ -6,18 +6,18 @@ from string import punctuation
 from os import listdir, remove
 from io import BytesIO
 
+import os
 import re
 import base64
-import datetime
 import database
 import dash
 
 dash.register_page(
     __name__,
     path="/motoristas",
-    title="Painel de Motoristas",
+    title="Focus Telemetry - Motoristas",
     name="motoristas",
-    order=3
+    order=2
     )
 
 
@@ -32,7 +32,7 @@ def layout(**query):
                              options=Utils.options(), value="nome", clearable=False),
                 dcc.Input(className="input search-B", id="pg3--search-bar", type="search", debounce=False,
                           placeholder="Pesquisar motorista por nome..."),
-                html.Button(className="button-search-B click", n_clicks=0, id="pg3--mod0-abrir", children=html.Img(
+                html.Button(className="button-search click", n_clicks=0, id="pg3--mod0-abrir", children=html.Img(
                     src=dash.get_asset_url("icons/icone-adicionar.svg"), width="32px", height="32px"
                     ))
                 ]),
@@ -183,9 +183,32 @@ class Layouts:
             ])
 
     @staticmethod
+    def afastado(placa: str):
+        return html.Div(className="modal", style={"visibility": "hidden"}, id="pg3--mod4", children=[
+            dcc.Location(id="pg3--mod4-refresh", refresh=False),
+            html.Button(className="modal-backdrop", n_clicks=0, id="pg3--mod4-backdrop"),
+            html.Div(className="card modal-body", id="pg3--mod4-conteudo", children=[
+                html.H3(style={"margin-top": "15px"}, children="Tem certeza que deseja marcar/retirar o motorista como afastado?"),
+                html.Div(className="row form-buttons", children=[
+                    html.Button(className="button form-button click", value=placa, n_clicks=0, id="pg3--mod4-confirmar", children="Confirmar"),
+                    html.Button(className="button form-button click", n_clicks=0, id="pg3--mod4-cancelar", children="Cancelar"),
+                    ])
+                ])
+            ])
+
+    @staticmethod
+    def aviso_viagem():
+        return html.Div(className="modal", style={"visibility": "hidden"}, id="pg3--mod5", children=[
+            html.Button(className="modal-backdrop", n_clicks=0, id="pg3--mod5-backdrop"),
+            html.Div(className="card modal-body", id="pg3--mod5-conteudo", children=[
+                html.H3(style={"margin-top": "15px", "margin-bottom": "15px"}, children="O motorista em questão está em viagem e não pode ser alterado.")
+                ])
+            ])
+
+    @staticmethod
     def cardlist(motoristas: tuple):
         """Lista de cards com os motoristas registrados no banco de dados."""
-        img_arquivos = listdir("./assets/images/motoristas/")
+        img_arquivos = listdir(Utils.assets_path() + "\\assets\\images\\motoristas\\")
         img_nomes = [img.split(".")[0] for img in img_arquivos]
 
         return [
@@ -211,22 +234,23 @@ class Layouts:
         """Status dos motoristas da transportadora."""
         banco_dados = database.BancoDados()
         motoristas = banco_dados.motoristas_lista()
+        banco_dados.finalizar()
 
         return [
             html.Div(className="card stats-A", children=[
-                html.Img(src=dash.get_asset_url("icons/icone-volante.svg"), width="120px", height="120px"),
+                html.Img(src=dash.get_asset_url("icons/icone-volante.svg"), width="70px", height="70px"),
                 html.H2("Em viagem"),
-                html.H1(len([v for v in motoristas if v[-1] == "Em Viagem "]))
+                html.H1(len([v for v in motoristas if v[-1] in ["Em Viagem ", "Em Viagem"]]))
                 ]),
             html.Div(className="card stats-A", children=[
-                html.Img(src=dash.get_asset_url("icons/icone-motorista-disponivel.svg"), width="120px", height="120px"),
+                html.Img(src=dash.get_asset_url("icons/icone-motorista-disponivel.svg"), width="70px", height="70px"),
                 html.H2("Disponíveis"),
-                html.H1(len([v for v in motoristas if v[-1] == "Disponível"]))
+                html.H1(len([v for v in motoristas if v[-1] in ["Disponível ", "Disponível"]]))
                 ]),
             html.Div(className="card stats-A", children=[
-                html.Img(src=dash.get_asset_url("icons/icone-afastado.svg"), width="120px", height="120px"),
+                html.Img(src=dash.get_asset_url("icons/icone-afastado.svg"), width="70px", height="70px"),
                 html.H2("Afastados"),
-                html.H1(len([v for v in motoristas if v[-1] == "Afastado"]))
+                html.H1(len([v for v in motoristas if v[-1] in ["Afastado", "Afastado "]]))
                 ])
             ]
 
@@ -239,7 +263,11 @@ class Utils:
             {"label": "Nome", "value": "nome"},
             {"label": "CPF", "value": "CPF"},
             ]
-    
+
+    @staticmethod
+    def assets_path():
+        return os.path.normpath(os.path.dirname(__file__) + os.sep + os.pardir)
+
     @staticmethod
     def estados():
         """Lista de estados e siglas para criação de dropdown."""
@@ -304,7 +332,7 @@ class Utils:
     @staticmethod
     def motorista(query: str):
         """Busca por um motorista no banco de dados de acordo com seu CPF."""
-        if "cpf" not in query:
+        if query is None or "cpf" not in query:
             motorista = Utils.busca()[0]
         else:
             banco_dados = database.BancoDados()
@@ -319,7 +347,7 @@ class Utils:
             return "Um dos campos do formulários está vazio ou com um valor inválido."    
         elif any(any([str.isdigit(c), c in punctuation]) for c in forms[0]):
             return "O nome do motorista inserido é inválido."
-        elif 18 < forms[1] > 120 or not isinstance(forms[1], int):
+        elif 18 < int(forms[1]) > 120:
             return "A idade do motorista inserida é inválida."
         elif len(forms[2]) < 9 or any(not str.isdigit(c) for c in forms[2]):
             return "O RG do motorista inserido é inválido."
@@ -366,10 +394,13 @@ def barra_busca(busca: str, filtro: str):
     )
 def atualizar_informacoes(url: str):
     """Atualiza o card de informações de acordo com o motorista selecionado da lista."""
-    id_entrega = None
     motorista = Utils.motorista(url)
 
-    img_arquivos = listdir("./assets/images/motoristas/")
+    banco_dados = database.BancoDados()
+    id_entrega = banco_dados.entregas_motorista(motorista[4])
+    banco_dados.finalizar()
+
+    img_arquivos = listdir(Utils.assets_path() + "\\assets\\images\\motoristas\\")
     img_nomes = [img.split(".")[0] for img in img_arquivos]
 
     return [
@@ -381,35 +412,41 @@ def atualizar_informacoes(url: str):
             )),
         html.Div(className="content", children=[
             html.Div(className="infos-list", children=[
-                html.P(f"CPF: {motorista[4]}"),
-                html.P(f"RG: {motorista[3]}"),
                 html.P(f"Nome Completo: {motorista[1]}"),
+                html.P(f"CPF: {motorista[4]} | RG: {motorista[3]}"),
                 html.P(f"Idade: {motorista[2]}"),
                 html.P(f"Telefone(s): {motorista[5]}"),
                 html.P(f"CEP: {motorista[6]}"),
-                html.P(f"Endereço: {motorista[7]}"),
+                html.P(f"Endereço: {motorista[11]}, {motorista[10]}, {motorista[8]}, {motorista[7]}, {motorista[9]}"),
+                html.P(f"Habilitação: {motorista[12]}"),
+                html.Hr()
                 ]),
             html.Div(className="status", children=[
-                dcc.Link(href=f"/entregas?id={id_entrega}", children="motorista em viagem...")
-                if motorista[-1] == "Em Viagem " else
-                html.P(children=f"Motorista...")
+                dcc.Link(href=f"/?id={id_entrega[0]}", children="Motorista em viagem...")
+                if motorista[-1] in ["Em Viagem ", "Em Viagem"] else
+                html.P(children=f"Motorista {motorista[-1].lower()}")
                 ])
             ]),
         html.Div(className="buttons-layout", children=[
-            html.Button(className="button-infos-B click", n_clicks=0, id="pg3--mod2-abrir", children=html.Img(
-                src=dash.get_asset_url("icons/icone-lixeira.svg"), width="30px", height="30px"
+            html.Button(className="button-infos-B last click", n_clicks=0, id="pg3--mod2-abrir", children=html.Img(
+                src=dash.get_asset_url("icons/icone-lixeira.svg"), width="35px", height="35px"
                 )),
             dcc.Location(id="pg3--upload-refresh", refresh=False),
             dcc.Upload(id="pg3--upload", children=[
                 html.Button(className="button-infos-B click", n_clicks=0, children=[
-                    html.Img(src=dash.get_asset_url("icons/icone-imagem.svg"), width="30px", height="30px")
+                    html.Img(src=dash.get_asset_url("icons/icone-imagem.svg"), width="35px", height="35px")
                     ])
                 ]),
+            html.Button(className="button-infos-B click", n_clicks=0, id=f"pg3--mod4-abrir", children=html.Img(
+                src=dash.get_asset_url("icons/icone-afastado-branco.svg"), width="35px", height="35px"
+                )),
             html.Button(className="button-infos-B click", n_clicks=0, id=f"pg3--mod1-abrir", children=html.Img(
-                src=dash.get_asset_url("icons/icone-editar.svg"), width="30px", height="30px"
+                src=dash.get_asset_url("icons/icone-editar.svg"), width="35px", height="35px"
                 )),
             ]),
-        Layouts.deletar(motorista[4])
+        Layouts.deletar(motorista[4]),
+        Layouts.afastado(motorista[4]),
+        Layouts.aviso_viagem()
         ]
 
 
@@ -544,13 +581,6 @@ def forms_editar_confirmar(bt, path, *forms):
         forms = list(forms)
 
         forms[3] = f"{forms[3][:3]}.{forms[3][3:6]}.{forms[3][6:9]}-{forms[3][9:]}"
-        forms[2] = f"{forms[2][:2]}.{forms[2][2:5]}.{forms[2][5:8]}-{forms[2][-1]}"
-
-        for rg_cpf in banco_dados.motoristas_identidade():
-            if forms[3] == rg_cpf[1]:
-                return *[dash.no_update] * 2, "O CPF inserido já existe no banco de dados."
-            elif forms[2] == rg_cpf[0]:
-                return *[dash.no_update] * 2, "O RG inserido já existe no banco de dados."
 
         forms[6] = f"{forms[6][:5]}-{forms[6][5:]}"
         forms[-1] = "/".join(forms[-1])
@@ -560,8 +590,11 @@ def forms_editar_confirmar(bt, path, *forms):
         if tel2 not in ["", None]:
             forms[4] = f"{forms[4]} / ({tel2[:2]}) {tel2[2:-4]}-{tel2[-4:]}"
 
-        banco_dados.motoristas_atualizar(forms)
+        cpf = forms.pop(3)
+        del forms[2]
 
+        banco_dados.motoristas_atualizar(cpf, forms)
+        
         if path == "/motoristas/":
             return True, "/motoristas", dash.no_update
         else:
@@ -604,7 +637,7 @@ def deletar_confirmar(bt, cpf, path):
         banco_dados.motoristas_deletar(cpf)
         banco_dados.finalizar()
 
-        img_arquivos = listdir("./assets/images/motoristas/")
+        img_arquivos = listdir(Utils.assets_path() + "\\assets\\images\\motoristas\\")
         img_nomes = [img.split(".")[0] for img in img_arquivos]
         if cpf in img_nomes:
             remove(f"./assets/images/motoristas/{img_arquivos[img_nomes.index(cpf)]}")
@@ -645,5 +678,58 @@ def upload_imagem(bt, img, filename, query, path):
             return *[dash.no_update] * 2, {"visibility": "visible"}
     elif ctx.triggered_id == "pg3--mod3-backdrop":
         return *[dash.no_update] * 2, {"visibility": "hidden"}
+    else:
+        raise PreventUpdate
+
+
+@dash.callback(
+    Output("pg3--mod4", "style"),
+    Output("pg3--mod5", "style"),
+    State("pg3--mod4-confirmar", "value"),
+    Input("pg3--mod4-abrir", "n_clicks"),
+    Input("pg3--mod4-backdrop", "n_clicks"),
+    Input("pg3--mod4-cancelar", "n_clicks"),
+    Input("pg3--mod5-backdrop", "n_clicks"),
+    prevent_initial_call=True
+    )
+def manutencao_abrir(placa, *bt):
+    if any(bt):
+        if ctx.triggered_id in ["pg3--mod4-backdrop", "pg3--mod4-cancelar"]:
+            return {"visibility": "hidden"}, dash.no_update
+        elif ctx.triggered_id == "pg3--mod5-backdrop":
+            return dash.no_update, {"visibility": "hidden"}
+        else:
+            banco_dados = database.BancoDados()
+            motorista = banco_dados.motoristas_busca(placa)
+            banco_dados.finalizar()
+            if motorista[-1] in ["Em Viagem ", "Em Viagem"]:
+                return dash.no_update, {"visibility": "visible"}
+            else:
+                return {"visibility": "visible"}, dash.no_update
+    else:
+        return dash.no_update
+
+
+@dash.callback(
+    Output("pg3--mod4-refresh", "refresh"),
+    Output("pg3--mod4-refresh", "pathname"),
+    Input("pg3--mod4-confirmar", "n_clicks"),
+    State("pg3--mod4-confirmar", "value"),
+    State("pg3--mod4-refresh", "pathname"),
+    prevent_initial_call=True
+    )
+def manutencao_confirmar(bt, placa, path):
+    if bt:
+        banco_dados = database.BancoDados()
+        motorista = banco_dados.motoristas_busca(placa)
+        if motorista[-1] in ["Afastado", "Afastado "]:
+            banco_dados.motoristas_status(placa, "Disponível")
+        else:
+            banco_dados.motoristas_status(placa, "Afastado")
+        banco_dados.finalizar()
+        if path == "/motoristas/":
+            return True, "/motoristas"
+        else:
+            return True, "/motoristas/"
     else:
         raise PreventUpdate
